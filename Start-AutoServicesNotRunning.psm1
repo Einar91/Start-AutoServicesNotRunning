@@ -17,7 +17,7 @@ function Start-AutoServicesNotRunning {
     [Parameter(ValueFromPipeline=$True,
         ValueFromPipelineByPropertyName=$True)]
     [Alias('CN','MachineName','HostName','Name')]
-    [string[]]$ComputerName = "ridbfaif0001"
+    [string[]]$ComputerName
     )
 
     
@@ -30,30 +30,52 @@ PROCESS {
     $Reg_Exclued = "^(gupdate|MapsBroker|RemoteRegistry|sppsvc|WbioSrvc)"
     
     foreach($computer in $ComputerName){    
-        
-        $splat_ciminstance = @{'ComputerName'=$computer
-                                'ClassName'='Win32_Service'
-                                'Filter'="StartMode='Auto' and State='Stopped'"}
+        Try{
+            #Create our object
+            $ComputerObj = New-Object psobject -Property @{'ComputerName'=$computer}        
 
-        $Services = Get-CimInstance @splat_ciminstance | Where-Object {$_.Name -notmatch $Reg_Exclued}
-        
-        #-ComputerName $computer -ClassName Win32_Service -Filter "StartMode='Auto' and State='Stopped'" | Where-Object {$_.Name -notmatch $Reg_Exclued}
-        
-        foreach($service in $Services){
-            Write-Output "Trying to start $($service.DisplayName) on $computer."
-            $Result = $service | Invoke-CimMethod -MethodName StartService
-            $switch = $result.ReturnValue
-            Switch($switch){
-                0 {
-                    Write-Output "Request to start $($service.DisplayName) on $computer was accepted."
-                } #0
-                default {
-                    Write-Output "Request to start $($service.DisplayName) on $computer failed."
-                }
-            }
+            $splat_ciminstance = @{'ComputerName'=$computer
+                                    'ClassName'='Win32_Service'
+                                    'Filter'="StartMode='Auto' and State='Stopped'"
+                                    'ErrorAction'='Stop'
+                                    'ErrorVariable'='ErrorInstance'}
+
+            $Services = Get-CimInstance @splat_ciminstance | Where-Object {$_.Name -notmatch $Reg_Exclued}
             
-        } #Foreach
+            
+            
+            foreach($service in $Services){
+                Write-Output "$computer : Trying to start $($service.DisplayName)."
+                $Result = $service | Invoke-CimMethod -MethodName StartService
+                $switch = $result.ReturnValue
+                Switch($switch){
+                    0 {
+                        Write-Verbose "$computer : Request to start $($service.DisplayName) was accepted."
+                        Add-Member -InputObject $ComputerObj -MemberType NoteProperty -Name 'RequestToStart' -Value 'Succesfull'
+                    } #0
+                    default {
+                        Write-Verbose "$computer : Request to start $($service.DisplayName) failed."
+                        Add-Member -InputObject $ComputerObj -MemberType NoteProperty -Name 'RequestToStart' -Value 'Failed'
+                    }
+                } #Switch
+            } #Foreach
+
+            #Output our object to the pipeline
+            $ComputerObj
+
+        } #Try
+        Catch{
+            # Catch error connection to computer
+            if($ErrorInstance){
+                Write-Verbose "$computer : Failed to connect.."
+                Add-Member -InputObject $ComputerObj -MemberType NoteProperty -Name 'RequestToStart' -Value 'Failed to connect...'
+                
+                # Output object to pipeline
+                $ComputerObj
+            }
+        }
     } #Foreach
+    
 } #Process
 
 
